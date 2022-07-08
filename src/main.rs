@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 use talk::{
     crypto::{Identity, KeyCard, KeyChain},
     link::rendezvous::{Client, Connector, Listener, Server, ServerSettings},
-    net::{Connector as NetConnector, Listener as NetListener, SecureConnection},
+    net::{Session, SessionConnector, SessionListener},
 };
 
 use tokio::time;
@@ -83,7 +83,9 @@ async fn node() {
 async fn server(keychain: KeyChain) {
     println!("Running as server..");
 
-    let mut listener = Listener::new(RENDEZVOUS, keychain, Default::default()).await;
+    let listener = Listener::new(RENDEZVOUS, keychain, Default::default()).await;
+    let mut listener = SessionListener::new(listener);
+
     let counter = Arc::new(RelaxedCounter::new(0));
 
     {
@@ -93,7 +95,11 @@ async fn server(keychain: KeyChain) {
         tokio::spawn(async move {
             loop {
                 let counter = counter.get();
-                println!("Received {} batches ({} batches / s)", counter, (counter - last));
+                println!(
+                    "Received {} batches ({} batches / s)",
+                    counter,
+                    (counter - last)
+                );
                 last = counter;
 
                 time::sleep(Duration::from_secs(1)).await;
@@ -102,7 +108,7 @@ async fn server(keychain: KeyChain) {
     }
 
     loop {
-        let (_, connection) = listener.accept().await.unwrap();
+        let (_, connection) = listener.accept().await;
         let counter = counter.clone();
 
         tokio::spawn(async move {
@@ -113,7 +119,7 @@ async fn server(keychain: KeyChain) {
     }
 }
 
-async fn serve(mut connection: SecureConnection) -> Result<(), Top<BandError>> {
+async fn serve(mut connection: Session) -> Result<(), Top<BandError>> {
     let buffer = connection
         .receive::<Vec<u8>>()
         .await
@@ -133,6 +139,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     time::sleep(Duration::from_secs(1)).await;
 
     let connector = Connector::new(RENDEZVOUS, keychain, Default::default());
+    let connector = SessionConnector::new(connector);
     let connector = Arc::new(connector);
 
     for _ in 0..WORKERS {
@@ -153,7 +160,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     }
 }
 
-async fn ping(connector: &Connector, server: Identity) -> Result<(), Top<BandError>> {
+async fn ping(connector: &SessionConnector, server: Identity) -> Result<(), Top<BandError>> {
     let mut connection = connector
         .connect(server)
         .await
