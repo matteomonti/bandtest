@@ -14,10 +14,10 @@ use talk::{
 
 use tokio::time;
 
-const RENDEZVOUS: &str = "127.0.0.1:1234";
+const RENDEZVOUS: &str = "172.31.36.16:9000";
 
-const NODES: usize = 4;
-const WORKERS: usize = 64;
+const NODES: usize = 2;
+const WORKERS: usize = 1;
 
 #[derive(Doom)]
 enum BandError {
@@ -30,7 +30,6 @@ enum BandError {
 #[tokio::main]
 async fn main() {
     node().await;
-    // rendezvous().await;
 }
 
 #[allow(dead_code)]
@@ -89,10 +88,14 @@ async fn server(keychain: KeyChain) {
 
     {
         let counter = counter.clone();
+        let mut last = 0;
 
         tokio::spawn(async move {
             loop {
-                println!("Received {} batches", counter.get());
+                let counter = counter.get();
+                println!("Received {} batches ({} batches / s)", counter, (counter - last));
+                last = counter;
+
                 time::sleep(Duration::from_secs(1)).await;
             }
         });
