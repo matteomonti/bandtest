@@ -121,12 +121,12 @@ async fn server(keychain: KeyChain) {
 
 async fn serve(mut connection: Session) -> Result<(), Top<BandError>> {
     let buffer = connection
-        .receive::<Vec<u8>>()
+        .receive_raw::<Vec<u8>>()
         .await
         .pot(BandError::ConnectionError, here!())?;
 
     connection
-        .send(&(buffer.len() as u64))
+        .send_raw(&(buffer.len() as u64))
         .await
         .pot(BandError::ConnectionError, here!())?;
 
@@ -169,12 +169,12 @@ async fn ping(connector: &SessionConnector, server: Identity) -> Result<(), Top<
     let buffer = (0..1048576).map(|_| random()).collect::<Vec<u8>>();
 
     connection
-        .send(&buffer)
+        .send_raw(&buffer)
         .await
         .pot(BandError::ConnectionError, here!())?;
 
     let len = connection
-        .receive::<u64>()
+        .receive_raw::<u64>()
         .await
         .pot(BandError::ConnectionError, here!())?;
 
