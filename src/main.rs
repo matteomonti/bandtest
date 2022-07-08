@@ -19,6 +19,8 @@ const RENDEZVOUS: &str = "172.31.36.16:9000";
 const NODES: usize = 2;
 const WORKERS: usize = 1;
 
+const BATCH_SIZE: usize = 128 * 1048576;
+
 #[derive(Doom)]
 enum BandError {
     #[doom(description("Connect failed"))]
@@ -142,13 +144,17 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     let connector = SessionConnector::new(connector);
     let connector = Arc::new(connector);
 
+    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
+    let buffer = Arc::new(buffer);
+
     for _ in 0..WORKERS {
         let connector = connector.clone();
         let server = server.identity();
+        let buffer = buffer.clone();
 
         tokio::spawn(async move {
             loop {
-                if let Err(error) = ping(connector.as_ref(), server).await {
+                if let Err(error) = ping(connector.as_ref(), server, buffer.as_ref()).await {
                     println!("{:?}", error);
                 }
             }
@@ -160,13 +166,11 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     }
 }
 
-async fn ping(connector: &SessionConnector, server: Identity) -> Result<(), Top<BandError>> {
+async fn ping(connector: &SessionConnector, server: Identity, buffer: &Vec<u8>) -> Result<(), Top<BandError>> {
     let mut connection = connector
         .connect(server)
         .await
         .pot(BandError::ConnectFailed, here!())?;
-
-    let buffer = (0..1048576).map(|_| random()).collect::<Vec<u8>>();
 
     connection
         .send_raw(&buffer)
