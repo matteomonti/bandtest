@@ -12,3 +12,5 @@ doomstack = { git = "https://github.com/Distributed-EPFL/doomstack" }
 tokio = { version = "1.12.0", features = [ "macros", "net", "rt-multi-thread", "io-util", "sync", "time" ] }
 rand = { version = "0.8.5" }
 atomic-counter = { version = "1.0.1" }
+
+statistical = { version = "1.0.0" }
