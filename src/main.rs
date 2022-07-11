@@ -114,8 +114,13 @@ async fn server(keychain: KeyChain) {
         let counter = counter.clone();
 
         tokio::spawn(async move {
-            if serve(session).await.is_ok() {
-                counter.inc();
+            match serve(session).await {
+                Ok(()) => {
+                    counter.inc();
+                }
+                Err(error) => {
+                    println!("{:?}", error);
+                }
             }
         });
     }
