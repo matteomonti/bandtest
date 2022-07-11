@@ -1,78 +1,188 @@
+use atomic_counter::{AtomicCounter, RelaxedCounter};
+
+use doomstack::{here, Doom, ResultExt, Top};
+
 use rand::prelude::*;
 
-use std::time::{Duration, Instant};
+use std::{sync::Arc, time::Duration};
 
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, Result},
-    net::{TcpListener, TcpStream},
+use talk::{
+    crypto::{Identity, KeyCard, KeyChain},
+    link::rendezvous::{Client, Connector, Listener, Server, ServerSettings},
+    net::{Session, SessionConnector, SessionListener},
 };
 
-const BATCH_SIZE: usize = 1048576;
-type Message = u32;
+use tokio::time;
+
+const RENDEZVOUS: &str = "172.31.36.16:9000";
+
+const NODES: usize = 2;
+const WORKERS: usize = 1;
+
+const BATCH_SIZE: usize = 128 * 1048576;
+
+#[derive(Doom)]
+enum BandError {
+    #[doom(description("Connect failed"))]
+    ConnectFailed,
+    #[doom(description("Connection error"))]
+    ConnectionError,
+}
 
 #[tokio::main]
 async fn main() {
-    let _ = client().await;
+    node().await;
 }
 
-async fn server() {
-    let listener = TcpListener::bind("0.0.0.0:1234").await.unwrap();
+#[allow(dead_code)]
+async fn rendezvous() {
+    let _rendezvous_server = Server::new(
+        RENDEZVOUS,
+        ServerSettings {
+            shard_sizes: vec![NODES],
+        },
+    )
+    .await
+    .unwrap();
 
     loop {
-        let (connection, _) = listener.accept().await.unwrap();
+        time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[allow(dead_code)]
+async fn node() {
+    let keychain = KeyChain::random();
+    let rendezvous_client = Client::new(RENDEZVOUS, Default::default());
+
+    println!("Publishing card..");
+
+    rendezvous_client
+        .publish_card(keychain.keycard(), Some(0))
+        .await
+        .unwrap();
+
+    println!("Waiting for nodes..");
+
+    let mut nodes = loop {
+        if let Ok(nodes) = rendezvous_client.get_shard(0).await {
+            break nodes;
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    };
+
+    nodes.sort();
+
+    let first = nodes.first().unwrap().clone();
+
+    if first == keychain.keycard() {
+        server(keychain).await;
+    } else {
+        client(keychain, first).await;
+    }
+}
+
+async fn server(keychain: KeyChain) {
+    println!("Running as server..");
+
+    let listener = Listener::new(RENDEZVOUS, keychain, Default::default()).await;
+    let mut listener = SessionListener::new(listener);
+
+    let counter = Arc::new(RelaxedCounter::new(0));
+
+    {
+        let counter = counter.clone();
+        let mut last = 0;
 
         tokio::spawn(async move {
-            let _ = serve(connection).await;
+            loop {
+                let counter = counter.get();
+                println!(
+                    "Received {} batches ({} batches / s)",
+                    counter,
+                    (counter - last)
+                );
+                last = counter;
+
+                time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+    }
+
+    loop {
+        let (_, connection) = listener.accept().await;
+        let counter = counter.clone();
+
+        tokio::spawn(async move {
+            if serve(connection).await.is_ok() {
+                counter.inc();
+            }
         });
     }
 }
 
-async fn serve(mut connection: TcpStream) -> Result<()> {
-    let mut buffer: Vec<u8> = Vec::new();
+async fn serve(mut connection: Session) -> Result<(), Top<BandError>> {
+    let buffer = connection
+        .receive_raw::<Vec<u8>>()
+        .await
+        .pot(BandError::ConnectionError, here!())?;
+
+    connection
+        .send_raw(&(buffer.len() as u64))
+        .await
+        .pot(BandError::ConnectionError, here!())?;
+
+    Ok(())
+}
+
+async fn client(keychain: KeyChain, server: KeyCard) {
+    println!("Running as client..");
+
+    time::sleep(Duration::from_secs(1)).await;
+
+    let connector = Connector::new(RENDEZVOUS, keychain, Default::default());
+    let connector = SessionConnector::new(connector);
+    let connector = Arc::new(connector);
+
+    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
+    let buffer = Arc::new(buffer);
+
+    for _ in 0..WORKERS {
+        let connector = connector.clone();
+        let server = server.identity();
+        let buffer = buffer.clone();
+
+        tokio::spawn(async move {
+            loop {
+                if let Err(error) = ping(connector.as_ref(), server, buffer.as_ref()).await {
+                    println!("{:?}", error);
+                }
+            }
+        });
+    }
 
     loop {
-        let size = connection.read_u32().await?;
-        buffer.resize(size as usize, 0);
-        connection.read_exact(buffer.as_mut_slice()).await?;
-        let message = bincode::deserialize::<Vec<Message>>(buffer.as_slice()).unwrap();
-        connection.write_u32(message.len() as u32).await?;
+        time::sleep(Duration::from_secs(1)).await;
     }
 }
 
-async fn client() -> Result<()> {
-    let mut connection = TcpStream::connect("172.31.38.206:1234").await.unwrap();
-    let message = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<Message>>();
+async fn ping(connector: &SessionConnector, server: Identity, buffer: &Vec<u8>) -> Result<(), Top<BandError>> {
+    let mut connection = connector
+        .connect(server)
+        .await
+        .pot(BandError::ConnectFailed, here!())?;
 
-    let mut last_print = Instant::now();
-    let mut last_value = 0;
+    connection
+        .send_raw(&buffer)
+        .await
+        .pot(BandError::ConnectionError, here!())?;
 
-    let mut speeds = Vec::new();
+    let len = connection
+        .receive_raw::<u64>()
+        .await
+        .pot(BandError::ConnectionError, here!())?;
 
-    for batch in 0.. {
-        if last_print.elapsed() >= Duration::from_secs(1) {
-            let speed = ((batch - last_value) as f64) / last_print.elapsed().as_secs_f64();
-            speeds.push(speed);
-
-            let average = statistical::mean(speeds.as_slice());
-
-            let std = if speeds.len() > 1 {
-                statistical::standard_deviation(speeds.as_slice(), None)
-            } else {
-                0.
-            };
-
-            println!("Speed: {} +- {} B/s", average, std);
-
-            last_print = Instant::now();
-            last_value = batch;
-        }
-
-        let buffer = bincode::serialize(&message).unwrap();
-        connection.write_u32(buffer.len() as u32).await?;
-        connection.write_all(buffer.as_slice()).await?;
-        let size = connection.read_u32().await?;
-        assert_eq!(size, BATCH_SIZE as u32);
-    }
+    assert_eq!(len as usize, buffer.len());
 
     Ok(())
 }
