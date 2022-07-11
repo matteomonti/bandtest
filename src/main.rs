@@ -34,7 +34,7 @@ async fn serve(mut connection: TcpStream) -> Result<()> {
         buffer.resize(size as usize, 0);
         connection.read_exact(buffer.as_mut_slice()).await?;
         let message = bincode::deserialize::<Vec<u8>>(buffer.as_slice()).unwrap();
-        connection.write_u32(message.len()).await?;
+        connection.write_u32(message.len() as u32).await?;
     }
 }
 
