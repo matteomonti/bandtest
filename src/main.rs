@@ -33,13 +33,14 @@ async fn serve(mut connection: TcpStream) -> Result<()> {
         let size = connection.read_u32().await?;
         buffer.resize(size as usize, 0);
         connection.read_exact(buffer.as_mut_slice()).await?;
-        connection.write_u32(size).await?;
+        let message = bincode::deserialize::<Vec<u8>>(buffer.as_slice()).unwrap();
+        connection.write_u32(message.len()).await?;
     }
 }
 
 async fn client() -> Result<()> {
     let mut connection = TcpStream::connect("172.31.38.206:1234").await.unwrap();
-    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
+    let message = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
 
     let mut last_print = Instant::now();
     let mut last_value = 0;
@@ -65,7 +66,8 @@ async fn client() -> Result<()> {
             last_value = batch;
         }
 
-        connection.write_u32(BATCH_SIZE as u32).await?;
+        let buffer = bincode::serialize(&message).unwrap();
+        connection.write_u32(buffer.len() as u32).await?;
         connection.write_all(buffer.as_slice()).await?;
         let size = connection.read_u32().await?;
         assert_eq!(size, BATCH_SIZE as u32);

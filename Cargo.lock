@@ -60,8 +60,10 @@ name = "bandtest"
 version = "0.1.0"
 dependencies = [
  "atomic-counter",
+ "bincode",
  "doomstack",
  "rand 0.8.5",
+ "serde",
  "statistical",
  "talk",
  "tokio",
