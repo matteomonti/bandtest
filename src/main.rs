@@ -22,6 +22,8 @@ const WORKERS: usize = 1;
 const BATCH_SIZE: usize = 1048576;
 const BATCHES_PER_SESSION: usize = 1;
 
+type Message = u32;
+
 #[derive(Doom)]
 enum BandError {
     #[doom(description("Connect failed"))]
@@ -127,7 +129,7 @@ async fn serve(
 ) -> Result<(), Top<BandError>> {
     for _ in 0..BATCHES_PER_SESSION {
         let buffer = connection
-            .receive_raw::<Vec<u8>>()
+            .receive_raw::<Vec<Message>>()
             .await
             .pot(BandError::ConnectionError, here!())?;
 
@@ -150,7 +152,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     let connector = Connector::new(RENDEZVOUS, keychain, Default::default());
     let connector = Arc::new(connector);
 
-    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
+    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<Message>>();
     let buffer = Arc::new(buffer);
 
     for _ in 0..WORKERS {
@@ -175,7 +177,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
 async fn ping(
     connector: &Connector,
     server: Identity,
-    buffer: &Vec<u8>,
+    buffer: &Vec<Message>,
 ) -> Result<(), Top<BandError>> {
     let mut session = connector
         .connect(server)
