@@ -8,6 +8,7 @@ use tokio::{
 };
 
 const BATCH_SIZE: usize = 1048576;
+type Message = u32;
 
 #[tokio::main]
 async fn main() {
@@ -33,14 +34,14 @@ async fn serve(mut connection: TcpStream) -> Result<()> {
         let size = connection.read_u32().await?;
         buffer.resize(size as usize, 0);
         connection.read_exact(buffer.as_mut_slice()).await?;
-        let message = bincode::deserialize::<Vec<u8>>(buffer.as_slice()).unwrap();
+        let message = bincode::deserialize::<Vec<Message>>(buffer.as_slice()).unwrap();
         connection.write_u32(message.len() as u32).await?;
     }
 }
 
 async fn client() -> Result<()> {
     let mut connection = TcpStream::connect("172.31.38.206:1234").await.unwrap();
-    let message = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
+    let message = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<Message>>();
 
     let mut last_print = Instant::now();
     let mut last_value = 0;
