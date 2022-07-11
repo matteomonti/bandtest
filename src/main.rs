@@ -14,12 +14,12 @@ use talk::{
 
 use tokio::time;
 
-const RENDEZVOUS: &str = "172.31.36.16:9000";
+const RENDEZVOUS: &str = "172.31.10.33:9000";
 
 const NODES: usize = 2;
 const WORKERS: usize = 1;
 
-const BATCH_SIZE: usize = 128 * 1048576;
+const BATCH_SIZE: usize = 1048576;
 
 #[derive(Doom)]
 enum BandError {
@@ -110,27 +110,29 @@ async fn server(keychain: KeyChain) {
     }
 
     loop {
-        let (_, connection) = listener.accept().await;
+        let (_, session) = listener.accept().await;
         let counter = counter.clone();
 
         tokio::spawn(async move {
-            if serve(connection).await.is_ok() {
+            if serve(session).await.is_ok() {
                 counter.inc();
             }
         });
     }
 }
 
-async fn serve(mut connection: Session) -> Result<(), Top<BandError>> {
-    let buffer = connection
+async fn serve(mut session: Session) -> Result<(), Top<BandError>> {
+    let buffer = session
         .receive_raw::<Vec<u8>>()
         .await
         .pot(BandError::ConnectionError, here!())?;
 
-    connection
+    session
         .send_raw(&(buffer.len() as u64))
         .await
         .pot(BandError::ConnectionError, here!())?;
+
+    session.end();
 
     Ok(())
 }
@@ -167,20 +169,22 @@ async fn client(keychain: KeyChain, server: KeyCard) {
 }
 
 async fn ping(connector: &SessionConnector, server: Identity, buffer: &Vec<u8>) -> Result<(), Top<BandError>> {
-    let mut connection = connector
+    let mut session = connector
         .connect(server)
         .await
         .pot(BandError::ConnectFailed, here!())?;
 
-    connection
+    session
         .send_raw(&buffer)
         .await
         .pot(BandError::ConnectionError, here!())?;
 
-    let len = connection
+    let len = session
         .receive_raw::<u64>()
         .await
         .pot(BandError::ConnectionError, here!())?;
+
+    session.end();
 
     assert_eq!(len as usize, buffer.len());
 
