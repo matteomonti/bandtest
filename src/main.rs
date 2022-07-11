@@ -20,6 +20,7 @@ const NODES: usize = 2;
 const WORKERS: usize = 1;
 
 const BATCH_SIZE: usize = 1048576;
+const BATCHES_PER_SESSION: usize = 1;
 
 #[derive(Doom)]
 enum BandError {
@@ -114,28 +115,27 @@ async fn server(keychain: KeyChain) {
         let counter = counter.clone();
 
         tokio::spawn(async move {
-            match serve(session).await {
-                Ok(()) => {
-                    counter.inc();
-                }
-                Err(error) => {
-                    println!("{:?}", error);
-                }
+            if let Err(error) = serve(session, counter.as_ref()).await {
+                println!("{:?}", error);
             }
         });
     }
 }
 
-async fn serve(mut session: Session) -> Result<(), Top<BandError>> {
-    let buffer = session
-        .receive_raw::<Vec<u8>>()
-        .await
-        .pot(BandError::ConnectionError, here!())?;
+async fn serve(mut session: Session, counter: &RelaxedCounter) -> Result<(), Top<BandError>> {
+    for _ in 0..BATCHES_PER_SESSION {
+        let buffer = session
+            .receive_raw::<Vec<u8>>()
+            .await
+            .pot(BandError::ConnectionError, here!())?;
 
-    session
-        .send_raw(&(buffer.len() as u64))
-        .await
-        .pot(BandError::ConnectionError, here!())?;
+        session
+            .send_raw(&(buffer.len() as u64))
+            .await
+            .pot(BandError::ConnectionError, here!())?;
+
+        counter.inc();
+    }
 
     session.end();
 
@@ -173,25 +173,31 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     }
 }
 
-async fn ping(connector: &SessionConnector, server: Identity, buffer: &Vec<u8>) -> Result<(), Top<BandError>> {
+async fn ping(
+    connector: &SessionConnector,
+    server: Identity,
+    buffer: &Vec<u8>,
+) -> Result<(), Top<BandError>> {
     let mut session = connector
         .connect(server)
         .await
         .pot(BandError::ConnectFailed, here!())?;
 
-    session
-        .send_raw(&buffer)
-        .await
-        .pot(BandError::ConnectionError, here!())?;
+    for _ in 0..BATCHES_PER_SESSION {
+        session
+            .send_raw(&buffer)
+            .await
+            .pot(BandError::ConnectionError, here!())?;
 
-    let len = session
-        .receive_raw::<u64>()
-        .await
-        .pot(BandError::ConnectionError, here!())?;
+        let len = session
+            .receive_raw::<u64>()
+            .await
+            .pot(BandError::ConnectionError, here!())?;
+
+        assert_eq!(len as usize, buffer.len());
+    }
 
     session.end();
-
-    assert_eq!(len as usize, buffer.len());
 
     Ok(())
 }
