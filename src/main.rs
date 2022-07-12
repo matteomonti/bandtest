@@ -200,8 +200,11 @@ async fn client(keychain: KeyChain, server: KeyCard) {
         tokio::spawn(async move {
             loop {
                 match ping(connector.as_ref(), server, buffer.as_ref()).await {
-                    Ok(duration) => {
-                        println!("[Worker {}] Ping completed in {:?}", worker, duration);
+                    Ok((connect_time, end_time)) => {
+                        println!(
+                            "[Worker {}] Connect time: {:?}, end time: {:?}",
+                            worker, connect_time, end_time
+                        );
                     }
                     Err(error) => {
                         println!("[Worker {}] {:?}", worker, error);
@@ -220,13 +223,15 @@ async fn ping(
     connector: &SessionConnector,
     server: Identity,
     buffer: &Vec<u8>,
-) -> Result<Duration, Top<BandError>> {
+) -> Result<(Duration, Duration), Top<BandError>> {
     let start = Instant::now();
 
     let mut session = connector
         .connect(server)
         .await
         .pot(BandError::ConnectFailed, here!())?;
+
+    let connect_time = start.elapsed();
 
     for _ in 0..BATCHES_PER_SESSION {
         session
@@ -244,5 +249,7 @@ async fn ping(
 
     session.end();
 
-    Ok(start.elapsed())
+    let end_time = start.elapsed();
+
+    Ok((connect_time, end_time))
 }
