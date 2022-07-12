@@ -19,7 +19,7 @@ const RENDEZVOUS: &str = "172.31.5.210:9000";
 const NODES: usize = 2;
 const WORKERS: usize = 1;
 
-const BATCH_SIZE: usize = 1048576;
+const BATCH_SIZE: usize = 1100153;
 const BATCHES_PER_SESSION: usize = 1;
 
 const GRACE: usize = 5;
