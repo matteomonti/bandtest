@@ -24,8 +24,6 @@ const BATCHES_PER_SESSION: usize = 1;
 
 const GRACE: usize = 5;
 
-type Message = u32;
-
 #[derive(Doom)]
 enum BandError {
     #[doom(description("Connect failed"))]
@@ -132,7 +130,10 @@ async fn server(keychain: KeyChain) {
                             counter, speed, average, standard_deviation
                         );
                     } else {
-                        println!("Received {} batches (instant: {:.02} B / s)", counter, speed,);
+                        println!(
+                            "Received {} batches (instant: {:.02} B / s)",
+                            counter, speed,
+                        );
                         grace -= 1;
                     }
 
@@ -159,7 +160,7 @@ async fn server(keychain: KeyChain) {
 async fn serve(mut session: Session, counter: &RelaxedCounter) -> Result<(), Top<BandError>> {
     for _ in 0..BATCHES_PER_SESSION {
         let buffer = session
-            .receive_raw::<Vec<Message>>()
+            .receive_raw_bytes()
             .await
             .pot(BandError::ConnectionError, here!())?;
 
@@ -185,7 +186,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     let connector = SessionConnector::new(connector);
     let connector = Arc::new(connector);
 
-    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<Message>>();
+    let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
     let buffer = Arc::new(buffer);
 
     for _ in 0..WORKERS {
@@ -210,7 +211,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
 async fn ping(
     connector: &SessionConnector,
     server: Identity,
-    buffer: &Vec<Message>,
+    buffer: &Vec<u8>,
 ) -> Result<(), Top<BandError>> {
     let mut session = connector
         .connect(server)
@@ -219,7 +220,7 @@ async fn ping(
 
     for _ in 0..BATCHES_PER_SESSION {
         session
-            .send_raw(&buffer)
+            .send_raw_bytes(buffer.as_slice())
             .await
             .pot(BandError::ConnectionError, here!())?;
 
