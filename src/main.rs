@@ -128,11 +128,11 @@ async fn server(keychain: KeyChain) {
                         };
 
                         println!(
-                            "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
+                            "Received {} batches (instant: {} B / s) (average: {:.02} ± {:.02} B / s)",
                             counter, speed, average, standard_deviation
                         );
                     } else {
-                        println!("Received {} batches (instant: {} B / s)", counter, speed,);
+                        println!("Received {} batches (instant: {:.02} B / s)", counter, speed,);
                         grace -= 1;
                     }
 
