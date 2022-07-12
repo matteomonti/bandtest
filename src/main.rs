@@ -108,27 +108,27 @@ async fn server(keychain: KeyChain) {
 
             loop {
                 let counter = counter.get();
-                let speed = counter - last;
 
-                speeds.push(speed as f64);
+                if counter > 0 {
+                    let speed = counter - last;
 
-                let average = statistical::mean(speeds.as_slice());
-                
-                let standard_deviation = if speeds.len() > 1 {
-                    statistical::standard_deviation(speeds.as_slice(), None)
-                } else {
-                    0.
-                };
+                    speeds.push(speed as f64);
 
-                println!(
-                    "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
-                    counter,
-                    speed,
-                    average,
-                    standard_deviation
-                );
+                    let average = statistical::mean(speeds.as_slice());
 
-                last = counter;
+                    let standard_deviation = if speeds.len() > 1 {
+                        statistical::standard_deviation(speeds.as_slice(), None)
+                    } else {
+                        0.
+                    };
+
+                    println!(
+                        "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
+                        counter, speed, average, standard_deviation
+                    );
+
+                    last = counter;
+                }
 
                 time::sleep(Duration::from_secs(1)).await;
             }
