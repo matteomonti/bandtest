@@ -4,7 +4,10 @@ use doomstack::{here, Doom, ResultExt, Top};
 
 use rand::prelude::*;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use talk::{
     crypto::{Identity, KeyCard, KeyChain},
@@ -189,15 +192,20 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<u8>>();
     let buffer = Arc::new(buffer);
 
-    for _ in 0..WORKERS {
+    for worker in 0..WORKERS {
         let connector = connector.clone();
         let server = server.identity();
         let buffer = buffer.clone();
 
         tokio::spawn(async move {
             loop {
-                if let Err(error) = ping(connector.as_ref(), server, buffer.as_ref()).await {
-                    println!("{:?}", error);
+                match ping(connector.as_ref(), server, buffer.as_ref()).await {
+                    Ok(duration) => {
+                        println!("[Worker {}] Ping completed in {:?}", worker, duration);
+                    }
+                    Err(error) => {
+                        println!("[Worker {}] {:?}", worker, error);
+                    }
                 }
             }
         });
@@ -212,7 +220,9 @@ async fn ping(
     connector: &SessionConnector,
     server: Identity,
     buffer: &Vec<u8>,
-) -> Result<(), Top<BandError>> {
+) -> Result<Duration, Top<BandError>> {
+    let start = Instant::now();
+
     let mut session = connector
         .connect(server)
         .await
@@ -234,5 +244,5 @@ async fn ping(
 
     session.end();
 
-    Ok(())
+    Ok(start.elapsed())
 }
