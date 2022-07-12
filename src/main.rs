@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 use talk::{
     crypto::{Identity, KeyCard, KeyChain},
     link::rendezvous::{Client, Connector, Listener, Server, ServerSettings},
-    net::{Connector as NetConnector, Listener as NetListener, SecureConnection},
+    net::{Session, SessionConnector, SessionListener},
 };
 
 use tokio::time;
@@ -34,7 +34,13 @@ enum BandError {
 
 #[tokio::main]
 async fn main() {
-    node().await;
+    if std::env::var("RENDEZVOUS").unwrap_or_default() != "" {
+        println!("Running as rendezvous..");
+        rendezvous().await
+    } else {
+        println!("Running as node..");
+        node().await;
+    }
 }
 
 #[allow(dead_code)]
@@ -88,7 +94,8 @@ async fn node() {
 async fn server(keychain: KeyChain) {
     println!("Running as server..");
 
-    let mut listener = Listener::new(RENDEZVOUS, keychain, Default::default()).await;
+    let listener = Listener::new(RENDEZVOUS, keychain, Default::default()).await;
+    let mut listener = SessionListener::new(listener);
 
     let counter = Arc::new(RelaxedCounter::new(0));
 
@@ -112,34 +119,33 @@ async fn server(keychain: KeyChain) {
     }
 
     loop {
-        let (_, connection) = listener.accept().await.unwrap();
+        let (_, session) = listener.accept().await;
         let counter = counter.clone();
 
         tokio::spawn(async move {
-            if let Err(error) = serve(connection, counter.as_ref()).await {
+            if let Err(error) = serve(session, counter.as_ref()).await {
                 println!("{:?}", error);
             }
         });
     }
 }
 
-async fn serve(
-    mut connection: SecureConnection,
-    counter: &RelaxedCounter,
-) -> Result<(), Top<BandError>> {
+async fn serve(mut session: Session, counter: &RelaxedCounter) -> Result<(), Top<BandError>> {
     for _ in 0..BATCHES_PER_SESSION {
-        let buffer = connection
+        let buffer = session
             .receive_raw::<Vec<Message>>()
             .await
             .pot(BandError::ConnectionError, here!())?;
 
-        connection
+        session
             .send_raw(&(buffer.len() as u64))
             .await
             .pot(BandError::ConnectionError, here!())?;
 
         counter.inc();
     }
+
+    session.end();
 
     Ok(())
 }
@@ -150,6 +156,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
     time::sleep(Duration::from_secs(1)).await;
 
     let connector = Connector::new(RENDEZVOUS, keychain, Default::default());
+    let connector = SessionConnector::new(connector);
     let connector = Arc::new(connector);
 
     let buffer = (0..BATCH_SIZE).map(|_| random()).collect::<Vec<Message>>();
@@ -175,7 +182,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
 }
 
 async fn ping(
-    connector: &Connector,
+    connector: &SessionConnector,
     server: Identity,
     buffer: &Vec<Message>,
 ) -> Result<(), Top<BandError>> {
@@ -197,6 +204,8 @@ async fn ping(
 
         assert_eq!(len as usize, buffer.len());
     }
+
+    session.end();
 
     Ok(())
 }
