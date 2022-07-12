@@ -202,7 +202,7 @@ async fn client(keychain: KeyChain, server: KeyCard) {
                 match ping(connector.as_ref(), server, buffer.as_ref()).await {
                     Ok((connect_time, end_time)) => {
                         println!(
-                            "[Worker {} (step {})] Connect time: {:?}, end time: {:?}",
+                            "[Step {} (worker {})] Connect time: {:?}, end time: {:?}",
                             step, worker, connect_time, end_time
                         );
                     }
