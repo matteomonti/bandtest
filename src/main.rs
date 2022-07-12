@@ -25,7 +25,8 @@ const WORKERS: usize = 1;
 const BATCH_SIZE: usize = 1100153;
 const BATCHES_PER_SESSION: usize = 1;
 
-const GRACE: usize = 5;
+const GRACE: usize = 10;
+const STAGGERING: Duration = Duration::from_millis(100);
 
 #[derive(Doom)]
 enum BandError {
@@ -212,6 +213,8 @@ async fn client(keychain: KeyChain, server: KeyCard) {
                 }
             }
         });
+
+        time::sleep(STAGGERING).await;
     }
 
     loop {
