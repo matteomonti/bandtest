@@ -1007,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "talk"
 version = "0.1.0"
-source = "git+https://github.com/Distributed-EPFL/talk#a990463597a71d506089362b3449ecea572b1ada"
+source = "git+https://github.com/Distributed-EPFL/talk#b34e9a656689c86f93822e989b0a4ba2b4f23932"
 dependencies = [
  "async-trait",
  "bincode",
