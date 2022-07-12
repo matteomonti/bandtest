@@ -101,16 +101,33 @@ async fn server(keychain: KeyChain) {
 
     {
         let counter = counter.clone();
-        let mut last = 0;
 
         tokio::spawn(async move {
+            let mut last = 0;
+            let mut speeds = Vec::new();
+
             loop {
                 let counter = counter.get();
+                let speed = counter - last;
+
+                speeds.push(speed as f64);
+
+                let average = statistical::mean(speeds.as_slice());
+                
+                let standard_deviation = if speeds.len() > 1 {
+                    statistical::standard_deviation(speeds.as_slice(), None)
+                } else {
+                    0.
+                };
+
                 println!(
-                    "Received {} batches ({} batches / s)",
+                    "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
                     counter,
-                    (counter - last)
+                    speed,
+                    average,
+                    standard_deviation
                 );
+
                 last = counter;
 
                 time::sleep(Duration::from_secs(1)).await;
