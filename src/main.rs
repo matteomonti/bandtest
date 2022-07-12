@@ -22,6 +22,8 @@ const WORKERS: usize = 1;
 const BATCH_SIZE: usize = 1048576;
 const BATCHES_PER_SESSION: usize = 1;
 
+const GRACE: usize = 5;
+
 type Message = u32;
 
 #[derive(Doom)]
@@ -103,6 +105,8 @@ async fn server(keychain: KeyChain) {
         let counter = counter.clone();
 
         tokio::spawn(async move {
+            let mut grace = GRACE;
+
             let mut last = 0;
             let mut speeds = Vec::new();
 
@@ -112,20 +116,25 @@ async fn server(keychain: KeyChain) {
                 if counter > 0 {
                     let speed = counter - last;
 
-                    speeds.push(speed as f64);
+                    if grace == 0 {
+                        speeds.push(speed as f64);
 
-                    let average = statistical::mean(speeds.as_slice());
+                        let average = statistical::mean(speeds.as_slice());
 
-                    let standard_deviation = if speeds.len() > 1 {
-                        statistical::standard_deviation(speeds.as_slice(), None)
+                        let standard_deviation = if speeds.len() > 1 {
+                            statistical::standard_deviation(speeds.as_slice(), None)
+                        } else {
+                            0.
+                        };
+
+                        println!(
+                            "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
+                            counter, speed, average, standard_deviation
+                        );
                     } else {
-                        0.
-                    };
-
-                    println!(
-                        "Received {} batches (instant: {} B / s) (average: {} ± {} B / s)",
-                        counter, speed, average, standard_deviation
-                    );
+                        println!("Received {} batches (instant: {} B / s)", counter, speed,);
+                        grace -= 1;
+                    }
 
                     last = counter;
                 }
