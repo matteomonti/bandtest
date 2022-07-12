@@ -198,12 +198,12 @@ async fn client(keychain: KeyChain, server: KeyCard) {
         let buffer = buffer.clone();
 
         tokio::spawn(async move {
-            loop {
+            for step in 0.. {
                 match ping(connector.as_ref(), server, buffer.as_ref()).await {
                     Ok((connect_time, end_time)) => {
                         println!(
-                            "[Worker {}] Connect time: {:?}, end time: {:?}",
-                            worker, connect_time, end_time
+                            "[Worker {} (step {})] Connect time: {:?}, end time: {:?}",
+                            step, worker, connect_time, end_time
                         );
                     }
                     Err(error) => {
