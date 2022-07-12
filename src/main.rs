@@ -12,7 +12,10 @@ use talk::{
     net::{Session, SessionConnector, SessionListener},
 };
 
-use tokio::time;
+use tokio::{
+    sync::{OwnedSemaphorePermit, Semaphore},
+    time,
+};
 
 const RENDEZVOUS: &str = "172.31.5.210:9000";
 
@@ -23,6 +26,8 @@ const BATCH_SIZE: usize = 1100153;
 const BATCHES_PER_SESSION: usize = 1;
 
 const GRACE: usize = 5;
+
+const MAX_PERMITS: usize = usize::MAX >> 3;
 
 #[derive(Doom)]
 enum BandError {
@@ -99,8 +104,11 @@ async fn server(keychain: KeyChain) {
 
     let counter = Arc::new(RelaxedCounter::new(0));
 
+    let established = Arc::new(Semaphore::new(MAX_PERMITS));
+
     {
         let counter = counter.clone();
+        let established = established.clone();
 
         tokio::spawn(async move {
             let mut grace = GRACE;
@@ -126,13 +134,13 @@ async fn server(keychain: KeyChain) {
                         };
 
                         println!(
-                            "Received {} batches (instant: {} B / s) (average: {:.02} ± {:.02} B / s)",
-                            counter, speed, average, standard_deviation
+                            "Received {} batches (instant: {} B / s) (average: {:.02} ± {:.02} B / s) (established sessions: {})",
+                            counter, speed, average, standard_deviation, (MAX_PERMITS - established.available_permits())
                         );
                     } else {
                         println!(
-                            "Received {} batches (instant: {:.02} B / s)",
-                            counter, speed,
+                            "Received {} batches (instant: {:.02} B / s) (established sessions: {})",
+                            counter, speed,(MAX_PERMITS - established.available_permits())
                         );
                         grace -= 1;
                     }
@@ -147,17 +155,25 @@ async fn server(keychain: KeyChain) {
 
     loop {
         let (_, session) = listener.accept().await;
+
         let counter = counter.clone();
+        let established = established.clone();
+
+        let established_permit = established.acquire_owned().await.unwrap();
 
         tokio::spawn(async move {
-            if let Err(error) = serve(session, counter.as_ref()).await {
+            if let Err(error) = serve(session, counter.as_ref(), established_permit).await {
                 println!("{:?}", error);
             }
         });
     }
 }
 
-async fn serve(mut session: Session, counter: &RelaxedCounter) -> Result<(), Top<BandError>> {
+async fn serve(
+    mut session: Session,
+    counter: &RelaxedCounter,
+    _established_permit: OwnedSemaphorePermit,
+) -> Result<(), Top<BandError>> {
     for _ in 0..BATCHES_PER_SESSION {
         let buffer = session
             .receive_raw_bytes()
