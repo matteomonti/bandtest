@@ -202,10 +202,12 @@ async fn client(keychain: KeyChain, server: KeyCard) {
             for step in 0.. {
                 match ping(connector.as_ref(), server, buffer.as_ref()).await {
                     Ok((connect_time, end_time)) => {
-                        println!(
-                            "[Step {} (worker {})] Connect time: {:?}, end time: {:?}",
-                            step, worker, connect_time, end_time
-                        );
+                        if end_time > Duration::from_millis(280) {
+                            println!(
+                                "[Step {} (worker {})] Connect time: {:?}, end time: {:?}",
+                                step, worker, connect_time, end_time
+                            );
+                        }
                     }
                     Err(error) => {
                         println!("[Worker {}] {:?}", worker, error);
