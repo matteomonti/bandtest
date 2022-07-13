@@ -19,7 +19,6 @@ use tokio::time;
 
 const RENDEZVOUS: &str = "172.31.5.210:9000";
 
-const NODES: usize = 2;
 const WORKERS: usize = 1;
 
 const BATCH_SIZE: usize = 1100153;
@@ -52,7 +51,7 @@ async fn rendezvous() {
     let _rendezvous_server = Server::new(
         RENDEZVOUS,
         ServerSettings {
-            shard_sizes: vec![NODES],
+            shard_sizes: vec![1],
         },
     )
     .await
@@ -68,30 +67,27 @@ async fn node() {
     let keychain = KeyChain::random();
     let rendezvous_client = Client::new(RENDEZVOUS, Default::default());
 
-    println!("Publishing card..");
+    if std::env::var("SERVER").unwrap_or_default() != "" {
+        println!("Publishing card..");
 
-    rendezvous_client
-        .publish_card(keychain.keycard(), Some(0))
-        .await
-        .unwrap();
+        rendezvous_client
+            .publish_card(keychain.keycard(), Some(0))
+            .await
+            .unwrap();
 
-    println!("Waiting for nodes..");
-
-    let mut nodes = loop {
-        if let Ok(nodes) = rendezvous_client.get_shard(0).await {
-            break nodes;
-        }
-        time::sleep(Duration::from_millis(100)).await;
-    };
-
-    nodes.sort();
-
-    let first = nodes.first().unwrap().clone();
-
-    if first == keychain.keycard() {
         server(keychain).await;
     } else {
-        client(keychain, first).await;
+        println!("Waiting for server..");
+
+        let servers = loop {
+            if let Ok(nodes) = rendezvous_client.get_shard(0).await {
+                break nodes;
+            }
+            time::sleep(Duration::from_millis(100)).await;
+        };
+
+        let server = servers.first().unwrap().clone();
+        client(keychain, server).await;
     }
 }
 
