@@ -17,7 +17,7 @@ use talk::{
 
 use tokio::time;
 
-const RENDEZVOUS: &str = "172.31.5.210:9000";
+const RENDEZVOUS: &str = "3.70.184.79:9000";
 
 const WORKERS: usize = 1;
 
