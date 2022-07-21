@@ -1,15 +1,14 @@
 use nix::sys::socket::{sendmmsg, MsgFlags, SendMmsgData, SockaddrStorage};
+use tokio::io::{Error, ErrorKind, Interest, Result};
 use tokio::{net::UdpSocket, time};
-use tokio::io::{Error, ErrorKind, Result, Interest};
 
-use std::time::Duration;
+use std::io::IoSlice;
 use std::net::SocketAddr;
 use std::os::unix::io::AsRawFd;
-use std::io::IoSlice;
+use std::time::Duration;
 
 const BATCH_SIZE: usize = 100;
 const NB_BATCHES: usize = 100_000;
-
 
 async fn send_multiple(socket: &UdpSocket, addr: SocketAddr, bufs: &[[u8; 1024]]) -> Result<usize> {
     let dest: SockaddrStorage = addr.into();
