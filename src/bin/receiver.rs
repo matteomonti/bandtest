@@ -1,20 +1,20 @@
+use atomic_counter::{AtomicCounter, RelaxedCounter};
 use nix::sys::socket::{recvmmsg, MsgFlags, RecvMmsgData, SockaddrStorage};
-use tokio::io::{Error, ErrorKind, Interest};
-use tokio::net::UdpSocket;
+use tokio::{
+    io::{Error, ErrorKind, Interest},
+    net::UdpSocket,
+    time,
+};
 
-use std::io::IoSliceMut;
-use std::os::unix::io::AsRawFd;
+use std::{io::IoSliceMut, os::unix::io::AsRawFd, sync::Arc, time::Duration};
 
 const BATCH_SIZE: usize = 100;
 const MSS: usize = 2048;
 
-#[tokio::main]
-async fn main() {
-    let socket = UdpSocket::bind("0.0.0.0:1234").await.unwrap();
+async fn listener(port: u16, counter: Arc<RelaxedCounter>) {
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", port)).await.unwrap();
 
     let mut buf = vec![0_u8; MSS * BATCH_SIZE];
-
-    let mut count = 0;
 
     loop {
         let bufs = buf.chunks_exact_mut(MSS);
@@ -49,7 +49,7 @@ async fn main() {
                 Ok(msgs)
             })
             .unwrap_or_default();
-        
+
         let packets: Vec<_> = msgs
             .into_iter()
             .zip(buf.chunks_exact_mut(MSS))
@@ -59,8 +59,21 @@ async fn main() {
             })
             .collect();
 
-        count += packets.len();
+        counter.add(packets.len());
+    }
+}
 
-        println!("{}", count);
+#[tokio::main]
+async fn main() {
+    let counter = Arc::new(RelaxedCounter::new(0));
+
+    for port in 1234..1244 {
+        let counter = counter.clone();
+        tokio::spawn(listener(port, counter));
+    }
+
+    loop {
+        println!("Received {} packets", counter.get());
+        time::sleep(Duration::from_secs(1)).await;
     }
 }
