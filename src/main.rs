@@ -1,6 +1,25 @@
+use rand_distr::{Distribution, Poisson};
+
 use serde::{Deserialize, Serialize};
 
+use std::{
+    cmp,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
 use talk::crypto::primitives::sign::{KeyPair, PublicKey, Signature};
+
+use tokio::time;
+
+const MESSAGES: u64 = 128; // 33554432;
+const SIGNATURE_MODULO: u64 = 1024;
+
+const CLIENT_RATE: f64 = 1.;
+const CLIENT_WORKERS: u64 = 32;
+const CLIENT_POLLING: Duration = Duration::from_millis(1000);
+
+const RATE_PER_CLIENT_WORKER: f64 = CLIENT_RATE / (CLIENT_WORKERS as f64);
 
 #[derive(Serialize, Deserialize)]
 enum Message {
@@ -28,56 +47,75 @@ enum Message {
     },
 }
 
-#[tokio::main]
-async fn main() {
-    let id = 44;
+async fn client_load(
+    worker: u64,
+    cursor: Arc<Mutex<u64>>,
+    public: PublicKey,
+    signatures: Arc<Vec<Signature>>,
+) {
+    let mut last_wake = Instant::now();
+
+    loop {
+        time::sleep(CLIENT_POLLING).await;
+
+        let wake = Instant::now();
+        let elapsed = wake - last_wake;
+        last_wake = wake;
+
+        let range = {
+            let mut cursor = cursor.lock().unwrap();
+
+            if *cursor == MESSAGES {
+                return;
+            }
+
+            let expected = RATE_PER_CLIENT_WORKER * elapsed.as_secs_f64();
+            let poisson = Poisson::new(expected).unwrap();
+            let progress = poisson.sample(&mut rand::thread_rng()) as u64;
+
+            let start = *cursor;
+            let stop = cmp::min(*cursor + progress, MESSAGES);
+
+            *cursor = stop;
+
+            start..stop
+        };
+
+        for id in range {
+            println!("Should send {:?}", id);
+        }
+    }
+}
+
+async fn client() {
     let keypair = KeyPair::random();
     let public = keypair.public();
-    let signature = keypair.sign_raw(&44u64).unwrap();
 
-    println!(
-        "Request: {}",
-        bincode::serialize(&Message::Request {
-            id,
-            public,
-            signature,
-            padding: Default::default(),
-            more_padding: Default::default()
-        })
-        .unwrap()
-        .len()
-    );
+    let signatures = (0..SIGNATURE_MODULO)
+        .map(|modulo| keypair.sign_raw(&modulo).unwrap())
+        .collect::<Vec<_>>();
 
-    println!(
-        "Inclusion: {}",
-        bincode::serialize(&Message::Inclusion {
-            id,
-            padding: Default::default(),
-            more_padding: Default::default()
-        })
-        .unwrap()
-        .len()
-    );
+    let signatures = Arc::new(signatures);
 
-    println!(
-        "Reduction: {}",
-        bincode::serialize(&Message::Reduction {
-            id,
-            padding: Default::default(),
-            more_padding: Default::default()
-        })
-        .unwrap()
-        .len()
-    );
+    let cursor = Arc::new(Mutex::new(0));
 
-    println!(
-        "Completion: {}",
-        bincode::serialize(&Message::Completion {
-            id,
-            padding: Default::default(),
-            more_padding: Default::default()
+    let tasks = (0..CLIENT_WORKERS)
+        .map(|worker| {
+            tokio::spawn(client_load(
+                worker,
+                cursor.clone(),
+                public.clone(),
+                signatures.clone(),
+            ))
         })
-        .unwrap()
-        .len()
-    );
+        .collect::<Vec<_>>();
+
+    for task in tasks {
+        task.await.unwrap();
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    client().await;
 }
