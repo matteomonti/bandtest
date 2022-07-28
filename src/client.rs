@@ -1,6 +1,5 @@
 use crate::{
-    message::Message, CLIENT_POLLING, CLIENT_WORKERS, MESSAGES, RATE_PER_CLIENT_WORKER,
-    SIGNATURE_MODULO,
+    message::Message, CLIENT_POLLING, CLIENT_RATE, CLIENT_WORKERS, MESSAGES, SIGNATURE_MODULO,
 };
 
 use rand_distr::{Distribution, Poisson};
@@ -17,6 +16,8 @@ use talk::{
 };
 
 use tokio::time;
+
+const RATE_PER_CLIENT_WORKER: f64 = CLIENT_RATE / (CLIENT_WORKERS as f64);
 
 async fn load(
     sender: Arc<DatagramSender>,
