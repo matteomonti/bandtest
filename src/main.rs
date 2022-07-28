@@ -57,7 +57,7 @@ async fn client_load(
     public: PublicKey,
     signatures: Arc<Vec<Signature>>,
 ) {
-    let destination = env::var("BROKER_ADDRESS").unwrap();
+    let destination = env::var("BANDTEST_BROKER_ADDRESS").unwrap();
     let destination = destination.parse().unwrap();
 
     let mut last_wake = Instant::now();
@@ -164,7 +164,7 @@ async fn broker() {
         .await
         .unwrap();
 
-    for index in 0u64.. {
+    for index in 1u64.. {
         let _ = dispatcher.receive().await;
         println!("Received {} messages", index);
     }
@@ -175,7 +175,7 @@ async fn main() {
     let role = env::var("BANDTEST_ROLE").unwrap();
     if role == "CLIENT" {
         client().await;
-    } else {
+    } else if role == "BROKER" {
         broker().await;
     }
 }
