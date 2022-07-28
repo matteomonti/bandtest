@@ -8,18 +8,17 @@ use rand_distr::{Distribution, Poisson};
 use std::{
     cmp, env,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use talk::{
     crypto::primitives::sign::{KeyPair, PublicKey, Signature},
-    net::{DatagramDispatcher, DatagramDispatcherSettings, DatagramSender},
+    net::{DatagramDispatcher, DatagramDispatcherSettings, DatagramReceiver, DatagramSender},
 };
 
 use tokio::time;
 
-async fn client_load(
-    _worker: u64,
+async fn load(
     sender: Arc<DatagramSender>,
     cursor: Arc<Mutex<u64>>,
     public: PublicKey,
@@ -74,6 +73,26 @@ async fn client_load(
     }
 }
 
+async fn react(sender: Arc<DatagramSender>, mut receiver: DatagramReceiver) {
+    let (source, message) = receiver.receive().await;
+    let message = bincode::deserialize::<Message>(message.as_slice()).unwrap();
+
+    match message {
+        Message::Inclusion { id, .. } => {
+            let message = Message::Reduction {
+                id,
+                padding: Default::default(),
+                more_padding: Default::default(),
+            };
+
+            let message = bincode::serialize(&message).unwrap();
+            sender.send(source, message).await;
+        }
+        Message::Completion { .. } => {}
+        _ => unreachable!(),
+    }
+}
+
 pub async fn main() {
     let keypair = KeyPair::random();
     let public = keypair.public();
@@ -106,21 +125,20 @@ pub async fn main() {
         receivers.push(receiver);
     }
 
-    let tasks = senders
-        .iter()
-        .enumerate()
-        .map(|(worker, sender)| {
-            tokio::spawn(client_load(
-                worker as u64,
-                sender.clone(),
-                cursor.clone(),
-                public.clone(),
-                signatures.clone(),
-            ))
-        })
-        .collect::<Vec<_>>();
+    for sender in senders.iter() {
+        tokio::spawn(load(
+            sender.clone(),
+            cursor.clone(),
+            public.clone(),
+            signatures.clone(),
+        ));
+    }
 
-    for task in tasks {
-        task.await.unwrap();
+    for (sender, receiver) in senders.into_iter().zip(receivers.into_iter()) {
+        tokio::spawn(react(sender, receiver));
+    }
+
+    loop {
+        time::sleep(Duration::from_secs(1)).await;
     }
 }
