@@ -165,8 +165,20 @@ async fn broker() {
         .unwrap();
 
     for index in 1u64.. {
-        let _ = dispatcher.receive().await;
-        println!("Received {} messages", index);
+        let (source, message) = dispatcher.receive().await;
+        let message = bincode::deserialize::<Message>(message.as_slice()).unwrap();
+
+        match message {
+            Message::Request {
+                id,
+                public,
+                signature,
+                ..
+            } => {
+                println!("Received request {}", id);
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
