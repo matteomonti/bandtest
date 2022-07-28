@@ -1,7 +1,7 @@
 use crate::{
     message::Message, BROKER_BROADCAST_POLLING, BROKER_COMPLETION_BROADCAST_DURATION,
     BROKER_COMPLETION_DELAY, BROKER_FLUSH_INTERVAL, BROKER_HANDLERS,
-    BROKER_INCLUSION_BROADCAST_DURATION, BROKER_REDUCTION_TIMEOUT, MESSAGES,
+    BROKER_INCLUSION_BROADCAST_DURATION, BROKER_REDUCTION_TIMEOUT, MESSAGES, SIGNATURE_MODULO,
 };
 
 use std::{
@@ -48,7 +48,9 @@ async fn handle(
                 signature,
                 ..
             } => {
-                signature.verify_raw(public, &id).unwrap();
+                signature
+                    .verify_raw(public, &(id % SIGNATURE_MODULO))
+                    .unwrap();
                 // println!("Received request {}", id);
                 pool.lock().unwrap().push((id, source));
             }
