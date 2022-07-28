@@ -4,10 +4,10 @@ mod message;
 
 use std::{env, time::Duration};
 
-const MESSAGES: u64 = 1048576;
+const MESSAGES: u64 = 16777216;
 const SIGNATURE_MODULO: u64 = 1024;
 
-const CLIENT_RATE: f64 = 16384.;
+const CLIENT_RATE: f64 = 65536.;
 
 const CLIENT_WORKERS: u64 = 32;
 const CLIENT_POLLING: Duration = Duration::from_millis(10);
