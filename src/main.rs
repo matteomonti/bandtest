@@ -12,8 +12,11 @@ const CLIENT_WORKERS: u64 = 32;
 const CLIENT_POLLING: Duration = Duration::from_millis(10);
 
 const BROKER_FLUSH_INTERVAL: Duration = Duration::from_millis(1000);
+const BROKER_REDUCTION_TIMEOUT: Duration = Duration::from_millis(1000);
+const BROKER_COMPLETION_DELAY: Duration = Duration::from_secs(10);
 const BROKER_HANDLERS: u64 = 32;
 const BROKER_INCLUSION_BROADCAST_DURATION: Duration = Duration::from_millis(500);
+const BROKER_COMPLETION_BROADCAST_DURATION: Duration = Duration::from_millis(500);
 const BROKER_BROADCAST_POLLING: Duration = Duration::from_millis(10);
 
 #[tokio::main]
