@@ -20,6 +20,7 @@ use tokio::time;
 const RATE_PER_CLIENT_WORKER: f64 = CLIENT_RATE / (CLIENT_WORKERS as f64);
 
 async fn load(
+    index: usize,
     sender: Arc<DatagramSender>,
     cursor: Arc<Mutex<u64>>,
     public: PublicKey,
@@ -57,6 +58,8 @@ async fn load(
         };
 
         for id in range {
+            println!("[{}] Sending request {}", index, id);
+
             let message = Message::Request {
                 id,
                 public,
@@ -74,23 +77,29 @@ async fn load(
     }
 }
 
-async fn react(sender: Arc<DatagramSender>, mut receiver: DatagramReceiver) {
-    let (source, message) = receiver.receive().await;
-    let message = bincode::deserialize::<Message>(message.as_slice()).unwrap();
+async fn react(index: usize, sender: Arc<DatagramSender>, mut receiver: DatagramReceiver) {
+    loop {
+        let (source, message) = receiver.receive().await;
+        let message = bincode::deserialize::<Message>(message.as_slice()).unwrap();
 
-    match message {
-        Message::Inclusion { id, .. } => {
-            let message = Message::Reduction {
-                id,
-                padding: Default::default(),
-                more_padding: Default::default(),
-            };
+        match message {
+            Message::Inclusion { id, .. } => {
+                println!("[{}] Received inclusion {}", index, id);
 
-            let message = bincode::serialize(&message).unwrap();
-            sender.send(source, message).await;
+                let message = Message::Reduction {
+                    id,
+                    padding: Default::default(),
+                    more_padding: Default::default(),
+                };
+
+                let message = bincode::serialize(&message).unwrap();
+                sender.send(source, message).await;
+            }
+            Message::Completion { .. } => {
+                unreachable!();
+            }
+            _ => unreachable!(),
         }
-        Message::Completion { .. } => {}
-        _ => unreachable!(),
     }
 }
 
@@ -126,8 +135,9 @@ pub async fn main() {
         receivers.push(receiver);
     }
 
-    for sender in senders.iter() {
+    for (index, sender) in senders.iter().enumerate() {
         tokio::spawn(load(
+            index,
             sender.clone(),
             cursor.clone(),
             public.clone(),
@@ -135,8 +145,8 @@ pub async fn main() {
         ));
     }
 
-    for (sender, receiver) in senders.into_iter().zip(receivers.into_iter()) {
-        tokio::spawn(react(sender, receiver));
+    for (index, (sender, receiver)) in senders.into_iter().zip(receivers.into_iter()).enumerate() {
+        tokio::spawn(react(index, sender, receiver));
     }
 
     loop {

@@ -1,6 +1,6 @@
 use crate::{
     message::Message, BROKER_BROADCAST_POLLING, BROKER_FLUSH_INTERVAL, BROKER_HANDLERS,
-    BROKER_INCLUSION_BROADCAST_DURATION,
+    BROKER_INCLUSION_BROADCAST_DURATION, MESSAGES,
 };
 
 use std::{
@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use talk::net::{DatagramDispatcher, DatagramReceiver};
+use talk::net::{DatagramDispatcher, DatagramReceiver, DatagramSender};
 
 use tokio::{
     sync::mpsc::{self, Receiver as MpscReceiver},
@@ -36,12 +36,19 @@ async fn handle(
                 println!("Received request {}", id);
                 pool.lock().unwrap().push((id, source));
             }
+            Message::Reduction { id, .. } => {
+                println!("Received reduction {}", id);
+            }
             _ => todo!(),
         }
     }
 }
 
-async fn receive(mut receiver: DatagramReceiver, pool: Arc<Mutex<Vec<(u64, SocketAddr)>>>) {
+async fn receive(
+    mut receiver: DatagramReceiver,
+    pool: Arc<Mutex<Vec<(u64, SocketAddr)>>>,
+    _inclusion_times: Arc<Mutex<Vec<Option<Instant>>>>,
+) {
     let mut message_inlets = Vec::new();
     let mut message_outlets = Vec::new();
 
@@ -68,23 +75,26 @@ async fn receive(mut receiver: DatagramReceiver, pool: Arc<Mutex<Vec<(u64, Socke
     }
 }
 
-async fn flush(pool: Arc<Mutex<Vec<(u64, SocketAddr)>>>) {
+async fn flush(
+    pool: Arc<Mutex<Vec<(u64, SocketAddr)>>>,
+    sender: Arc<DatagramSender>,
+    inclusion_times: Arc<Mutex<Vec<Option<Instant>>>>,
+) {
     loop {
         time::sleep(BROKER_FLUSH_INTERVAL).await;
         let flush: Vec<_> = mem::take(pool.lock().unwrap().as_mut());
-        tokio::spawn(broadcast(flush));
+        tokio::spawn(broadcast(flush, sender.clone(), inclusion_times.clone()));
     }
 }
 
-async fn broadcast(batch: Vec<(u64, SocketAddr)>) {
+async fn broadcast(
+    batch: Vec<(u64, SocketAddr)>,
+    sender: Arc<DatagramSender>,
+    inclusion_times: Arc<Mutex<Vec<Option<Instant>>>>,
+) {
     if batch.is_empty() {
         return;
     }
-
-    println!(
-        "Broadcasting inclusions to {:?}",
-        batch.iter().map(|(id, _)| id).copied().collect::<Vec<_>>()
-    );
 
     let start = Instant::now();
     let mut sent = 0;
@@ -99,13 +109,30 @@ async fn broadcast(batch: Vec<(u64, SocketAddr)>) {
         let target = cmp::min(target, batch.len());
 
         for (id, address) in &batch[sent..target] {
-            println!("Should send inclusion {} -> {:?}", id, address);
+            println!("Sending inclusion {}", id);
+
+            let message = Message::Inclusion {
+                id: *id,
+                padding: Default::default(),
+                more_padding: Default::default(),
+            };
+
+            let message = bincode::serialize(&message).unwrap();
+            sender.send(*address, message).await;
         }
 
         sent = target;
     }
 
-    println!("Finished broadcasting inclusions in {:?}", start.elapsed());
+    let inclusion_time = Instant::now();
+
+    {
+        let mut inclusion_times = inclusion_times.lock().unwrap();
+
+        for (id, _) in batch.iter() {
+            *inclusion_times.get_mut(*id as usize).unwrap() = Some(inclusion_time);
+        }
+    }
 }
 
 pub async fn main() {
@@ -115,12 +142,14 @@ pub async fn main() {
         .await
         .unwrap();
 
-    let (_sender, receiver) = dispatcher.split();
+    let (sender, receiver) = dispatcher.split();
+    let sender = Arc::new(sender);
 
     let pool = Arc::new(Mutex::new(Vec::new()));
+    let inclusion_times = Arc::new(Mutex::new(vec![None; MESSAGES as usize]));
 
-    tokio::spawn(receive(receiver, pool.clone()));
-    tokio::spawn(flush(pool));
+    tokio::spawn(receive(receiver, pool.clone(), inclusion_times.clone()));
+    tokio::spawn(flush(pool, sender, inclusion_times));
 
     loop {
         time::sleep(Duration::from_secs(1)).await;
