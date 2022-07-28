@@ -3,12 +3,15 @@ use rand_distr::{Distribution, Poisson};
 use serde::{Deserialize, Serialize};
 
 use std::{
-    cmp,
+    cmp, env,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
-use talk::crypto::primitives::sign::{KeyPair, PublicKey, Signature};
+use talk::{
+    crypto::primitives::sign::{KeyPair, PublicKey, Signature},
+    net::{DatagramDispatcher, DatagramDispatcherSettings, DatagramSender},
+};
 
 use tokio::time;
 
@@ -48,11 +51,15 @@ enum Message {
 }
 
 async fn client_load(
-    worker: u64,
+    _worker: u64,
+    sender: Arc<DatagramSender>,
     cursor: Arc<Mutex<u64>>,
     public: PublicKey,
     signatures: Arc<Vec<Signature>>,
 ) {
+    let destination = env::var("BROKER_ADDRESS").unwrap();
+    let destination = destination.parse().unwrap();
+
     let mut last_wake = Instant::now();
 
     loop {
@@ -82,7 +89,19 @@ async fn client_load(
         };
 
         for id in range {
-            println!("Should send {:?}", id);
+            let message = Message::Request {
+                id,
+                public,
+                signature: signatures
+                    .get((id % SIGNATURE_MODULO) as usize)
+                    .unwrap()
+                    .clone(),
+                padding: Default::default(),
+                more_padding: Default::default(),
+            };
+
+            let message = bincode::serialize(&message).unwrap();
+            sender.send(destination, message).await;
         }
     }
 }
@@ -96,13 +115,36 @@ async fn client() {
         .collect::<Vec<_>>();
 
     let signatures = Arc::new(signatures);
-
     let cursor = Arc::new(Mutex::new(0));
 
-    let tasks = (0..CLIENT_WORKERS)
-        .map(|worker| {
+    let mut senders = Vec::new();
+    let mut receivers = Vec::new();
+
+    for _ in 0..CLIENT_WORKERS {
+        let dispatcher = DatagramDispatcher::bind(
+            "0.0.0.0:0",
+            DatagramDispatcherSettings {
+                workers: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (sender, receiver) = dispatcher.split();
+        let sender = Arc::new(sender);
+
+        senders.push(sender);
+        receivers.push(receiver);
+    }
+
+    let tasks = senders
+        .iter()
+        .enumerate()
+        .map(|(worker, sender)| {
             tokio::spawn(client_load(
-                worker,
+                worker as u64,
+                sender.clone(),
                 cursor.clone(),
                 public.clone(),
                 signatures.clone(),
@@ -115,7 +157,25 @@ async fn client() {
     }
 }
 
+async fn broker() {
+    let bind = env::var("BANDTEST_BROKER_ADDRESS").unwrap();
+
+    let mut dispatcher = DatagramDispatcher::bind(bind, Default::default())
+        .await
+        .unwrap();
+
+    for index in 0u64.. {
+        let _ = dispatcher.receive().await;
+        println!("Received {} messages", index);
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    client().await;
+    let role = env::var("BANDTEST_ROLE").unwrap();
+    if role == "CLIENT" {
+        client().await;
+    } else {
+        broker().await;
+    }
 }
