@@ -66,6 +66,10 @@ async fn load(
                     .get((id % SIGNATURE_MODULO) as usize)
                     .unwrap()
                     .clone(),
+                other_signature: signatures
+                    .get((id % SIGNATURE_MODULO) as usize)
+                    .unwrap()
+                    .clone(),
                 padding: Default::default(),
                 more_padding: Default::default(),
             };
@@ -76,7 +80,12 @@ async fn load(
     }
 }
 
-async fn react(sender: Arc<DatagramSender>, mut receiver: DatagramReceiver) {
+async fn react(
+    sender: Arc<DatagramSender>,
+    mut receiver: DatagramReceiver,
+    public: PublicKey,
+    signatures: Arc<Vec<Signature>>,
+) {
     loop {
         let (source, message) = receiver.receive().await;
         let message = bincode::deserialize::<Message>(message.as_slice()).unwrap();
@@ -87,6 +96,11 @@ async fn react(sender: Arc<DatagramSender>, mut receiver: DatagramReceiver) {
 
                 let message = Message::Reduction {
                     id,
+                    public,
+                    signature: signatures
+                        .get((id % SIGNATURE_MODULO) as usize)
+                        .unwrap()
+                        .clone(),
                     padding: Default::default(),
                     more_padding: Default::default(),
                 };
@@ -144,7 +158,7 @@ pub async fn main() {
     }
 
     for (sender, receiver) in senders.into_iter().zip(receivers.into_iter()) {
-        tokio::spawn(react(sender, receiver));
+        tokio::spawn(react(sender, receiver, public.clone(), signatures.clone()));
     }
 
     loop {

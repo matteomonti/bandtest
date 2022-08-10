@@ -8,6 +8,7 @@ pub enum Message {
         id: u64,
         public: PublicKey,
         signature: Signature,
+        other_signature: Signature,
         padding: [[u8; 8]; 25],
         more_padding: [u8; 12],
     },
@@ -18,6 +19,8 @@ pub enum Message {
     },
     Reduction {
         id: u64,
+        public: PublicKey,
+        signature: Signature,
         padding: [[u8; 8]; 25],
         more_padding: [u8; 20],
     },
