@@ -46,15 +46,30 @@ async fn handle(
                 id,
                 public,
                 signature,
+                other_signature,
                 ..
             } => {
                 signature
                     .verify_raw(public, &(id % SIGNATURE_MODULO))
                     .unwrap();
+
+                other_signature
+                    .verify_raw(public, &(id % SIGNATURE_MODULO))
+                    .unwrap();
+
                 // println!("Received request {}", id);
                 pool.lock().unwrap().push((id, source));
             }
-            Message::Reduction { id, .. } => {
+            Message::Reduction {
+                id,
+                public,
+                signature,
+                ..
+            } => {
+                signature
+                    .verify_raw(public, &(id % SIGNATURE_MODULO))
+                    .unwrap();
+
                 let reduction_delay =
                     match inclusion_times.lock().unwrap().get(id as usize).unwrap() {
                         Some(inclusion_time) => inclusion_time.elapsed(),
